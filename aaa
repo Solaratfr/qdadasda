@@ -1,0 +1,1105 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+_G.WhitelistUrl = "https://gist.githubusercontent.com/Solaratfr/11e3c1c6d415b4ee6f4f4e827904c0ba/raw/whitelist.txt"
+
+-- // WHITELIST CHECK //
+local function checkWhitelist()
+    print("[Debug] Starting whitelist check...")
+
+    if RunService:IsStudio() then 
+        print("[Debug] Studio detected, bypassing whitelist.")
+        return true 
+    end
+
+    local url = _G.WhitelistUrl
+    if not string.find(url, "^https://") then
+        url = "https://" .. string.gsub(url, "^http://", "")
+    end
+
+    if string.find(url, "?") then
+        url = url .. "&nocache=" .. tostring(math.random(1, 100000))
+    else
+        url = url .. "?nocache=" .. tostring(math.random(1, 100000))
+    end
+
+    local success, result
+    local attempts = 0
+    local maxAttempts = 3 
+
+    repeat
+        attempts = attempts + 1
+        print("[Debug] Sending HTTP request (Attempt " .. attempts .. ")...")
+        success, result = pcall(function()
+            return game:HttpGet(url)
+        end)
+
+        if not success then
+            warn("Whitelist check failed (Attempt " .. attempts .. "). Retrying...")
+            if attempts < maxAttempts then 
+                task.wait(1.5)
+            end
+        end
+    until success or attempts >= maxAttempts
+
+    if success then
+        print("[Debug] HTTP Request successful. Parsing data...")
+        local myUserId = tostring(LocalPlayer.UserId)
+        local isWhitelisted = false
+
+        -- Parse the whitelist file line by line
+        for line in string.gmatch(result, "[^\r\n]+") do
+            line = string.gsub(line, "^%s*(.-)%s*$", "%1") -- Trim whitespace
+            if line ~= "" then
+                if string.find(line, ",") then
+                    -- Handle CSV format if present (ID,Name,etc)
+                    local id = string.match(line, "^(%d+),")
+                    if id and id == myUserId then
+                        isWhitelisted = true
+                        print("[Debug] User ID match found in whitelist!")
+                        break
+                    end
+                else
+                    -- Handle plain ID format
+                    if line == myUserId then
+                        isWhitelisted = true
+                        print("[Debug] User ID match found in whitelist!")
+                        break
+                    end
+                end
+            end
+        end
+
+        if isWhitelisted then
+            print("[Debug] Whitelist validation passed.")
+            return true
+        else
+            warn("[Debug] User ID " .. myUserId .. " not found in whitelist database.")
+            LocalPlayer:Kick("Not Whitelisted! Ask the owner to add you to the whitelist! ID: " .. myUserId)
+            return false
+        end
+    else
+        warn("Failed to connect to whitelist after " .. maxAttempts .. " attempts.")
+        LocalPlayer:Kick("Connection timed out. Please check your internet.")
+        return false
+    end
+end
+
+if not checkWhitelist() then return end
+
+-- Your existing configuration and system variables
+local ConfigName = "LimitedHub_Config.json"
+local blacklistedNames = {
+    "PlaceCooldownFromChat", "AdminPanelService", "AdminPanel",
+    "IntegrityCheckProcessor", "LocalizationTableAnalyticsSender",
+    "LocalizationService", "Analytics", "Telemetry", "Logger",
+    "Reporter", "CanChatWith", "SetPlayerBlockList", "UpdatePlayerBlockList",
+    "NewPlayerGroupDetails", "NewPlayerCanManageDetails", "SendPlayerBlockList",
+    "UpdateLocalPlayerBlockList", "SendPlayerProfileSettings",
+    "RequestPlayerProfileSettings", "UpdatePlayerProfileSettings",
+    "ShowFriendJoinedPlayerToast", "ShowPlayerJoinedFriendsToast",
+    "CreateOrJoinParty", "ServerSideBulkPurchaseEvent", "SetDialogInUse",
+    "ContactListInvokeIrisInvite", "ContactListIrisInviteTeleport",
+    "UpdateCurrentCall", "RequestDeviceCameraOrientationCapability",
+    "ReceiveLikelySpeakingUsers", "ReferredPlayerJoin", "Update",
+    "RE/Tools/Cooldown", "RE/FuseMachine/RevealNow", "RE/FuseMachine/FuseAnimation",
+    "RE/NotificationService/Notify", "RE/PlotService/ClaimCoins",
+    "RE/PlotService/Sell", "RE/PlotService/Open", "RE/PlotService/ToggleFriends",
+    "RE/PlotService/CashCollected", "RE/ChatService/ChatMessage",
+    "RE/SoundService/PlayClientSound", "RE/Snapshot/RealiableChannel",
+    "RE/CommandsService/OpenCommandBar", "RE/92e5a494-0ab4-4c4e-ae6b-96e5f4a2a698",
+    "92e5a494-0ab4-4c4e-ae6b-96e5f4a2a698", "6411a778-07a5-4513-b1c7-60b65ae05ac8",
+    "RE/GameService/SpawnEffect", "RE/Leaderboard/ReplicateDisplayNames",
+    "eb9dee81-7718-4020-b6b2-219888488d13", "fce51e06-a587-4ff0-9e19-869eb1859a01",
+    "680db8c7-c46a-492c-b451-6e980910902c", "RE/StealService/Grab",
+    "RE/PlotService/Place", "RE/StealService/StealingSuccess",
+    "RE/StealService/StealingFailure", "RE/CombatService/ApplyImpulse",
+    "RE/InventoryService/Sort", "RE/StockEventService/SetFocused",
+    "RE/StockEventService/Return", "RE/StockEventService/Redeem",
+    "RE/MerchantService/SetFocused", "RE/MerchantService/Animation",
+    "RE/SantaMerchantService/SetFocused", "RE/SantaMerchantService/Animation",
+    "RE/SantaMerchantService/CollectGoldElf", "RE/ShopService/Purchase",
+    "RE/TutorialService/StartTutorial", "RE/TutorialService/FinishTutorial",
+    "RE/TeleportService/Reconnect"
+}
+local priorityTargets = {
+    "WhyAreTheyTargetingMe!!", "FisherMan", "Chat", "AFK", "CookiesService"
+}
+
+local Settings = {
+    LagEnabled = false,
+    IsAutoLagging = false,
+    PacketRate = 3,
+    MaxPacketRate = 20,
+   
+    SpeedEnabled = false,
+    SpeedValue = 45,
+    MinSpeed = 35,
+    MaxSpeed = 55,
+}
+
+local function SaveConfig()
+    local data = {
+        PacketRate = Settings.PacketRate,
+        SpeedValue = Settings.SpeedValue,
+    }
+   
+    local success, json = pcall(function() return HttpService:JSONEncode(data) end)
+    if success then
+        if writefile then
+            writefile(ConfigName, json)
+        end
+    end
+end
+
+local function LoadConfig()
+    if not isfile or not readfile then return end
+    if isfile(ConfigName) then
+        local content = readfile(ConfigName)
+        local success, result = pcall(function() return HttpService:JSONDecode(content) end)
+       
+        if success and result then
+            if result.PacketRate then Settings.PacketRate = result.PacketRate end
+            if result.SpeedValue then Settings.SpeedValue = result.SpeedValue end
+        end
+    end
+end
+
+LoadConfig()
+
+local ToggleLagVisuals = nil
+local ToggleSpeedVisuals = nil
+
+-- DYNAMIC DEVICE DETECTION - MUST BE DEFINED BEFORE loadMainUI
+local function isMobile()
+    return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+end
+
+-- SCALING FACTORS FOR MOBILE
+local MOBILE_SCALE = 0.95
+local MOBILE_BUTTON_HEIGHT = 30
+local MOBILE_TOGGLE_HEIGHT = 30
+local MOBILE_FONT_SIZE_ADJUST = -2
+
+-- MAIN UI SYSTEM - MUST BE DEFINED BEFORE LOADING SCREEN
+local function loadMainUI()
+    -- Theme colors
+    local themeColors = {
+        bg = Color3.fromRGB(20, 20, 30),
+        card = Color3.fromRGB(30, 30, 45),
+        accent = Color3.fromRGB(80, 120, 200),
+        text = Color3.fromRGB(240, 240, 255),
+        green = Color3.fromRGB(80, 200, 80),
+        greenGlow = Color3.fromRGB(100, 255, 100),
+        red = Color3.fromRGB(255, 80, 80),
+        yellow = Color3.fromRGB(255, 200, 50)
+    }
+
+    -- Create main GUI
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "CleanAdminGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- Try CoreGui first, then PlayerGui
+    pcall(function() screenGui.Parent = CoreGui end)
+    if not screenGui.Parent then
+        screenGui.Parent = PlayerGui
+    end
+
+    -- Main Container (scaled based on device)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    if isMobile() then
+        mainFrame.Size = UDim2.new(0, 240, 0, 260)
+        mainFrame.Position = UDim2.new(1, 262.5, 0, 45)
+    else
+        mainFrame.Size = UDim2.new(0, 280, 0, 290)
+        mainFrame.Position = UDim2.new(1, 350, 0, 60)
+    end
+    mainFrame.BackgroundColor3 = themeColors.bg
+    mainFrame.BackgroundTransparency = 0.05
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+    Instance.new("UIStroke", mainFrame).Color = Color3.fromRGB(0, 0, 0)
+    mainFrame.UIStroke.Thickness = 2
+    mainFrame.UIStroke.Transparency = 0.7
+
+    -- Header
+    local header = Instance.new("TextButton")
+    header.Name = "Header"
+    if isMobile() then
+        header.Size = UDim2.new(1, 0, 0, 40)
+    else
+        header.Size = UDim2.new(1, 0, 0, 50)
+    end
+    header.BackgroundColor3 = themeColors.card
+    header.BorderSizePixel = 0
+    header.Text = ""
+    header.AutoButtonColor = false
+    header.Parent = mainFrame
+
+    Instance.new("UICorner", header).CornerRadius = UDim.new(0, 10)
+    Instance.new("UIStroke", header).Color = themeColors.accent
+    header.UIStroke.Thickness = 1
+
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Parent = header
+    title.BackgroundTransparency = 1
+    if isMobile() then
+        title.Position = UDim2.new(0, 15, 0, -3)
+    else
+        title.Position = UDim2.new(0, 15, 0, -5)
+    end
+    title.Size = UDim2.new(1, -60, 1, 0)
+    title.Text = "♥ Speed Bypass From:"
+    title.Font = Enum.Font.GothamBold
+    if isMobile() then
+        title.TextSize = 14
+    else
+        title.TextSize = 16
+    end
+    title.TextColor3 = themeColors.text
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Name = "Subtitle"
+    subtitle.Parent = header
+    subtitle.BackgroundTransparency = 1
+    if isMobile() then
+        subtitle.Position = UDim2.new(0, 15, 0, 20)
+        subtitle.Size = UDim2.new(1, -60, 0, 16)
+    else
+        subtitle.Position = UDim2.new(0, 15, 0, 25)
+        subtitle.Size = UDim2.new(1, -60, 0, 20)
+    end
+    subtitle.Text = "Artful ♥"
+    subtitle.Font = Enum.Font.Gotham
+    if isMobile() then
+        subtitle.TextSize = 10
+    else
+        subtitle.TextSize = 12
+    end
+    subtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+    subtitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- TOGGLES SECTION (TOP)
+    local togglesFrame = Instance.new("Frame")
+    togglesFrame.Name = "TogglesFrame"
+    if isMobile() then
+        togglesFrame.Size = UDim2.new(1, -15, 0, 90)
+        togglesFrame.Position = UDim2.new(0, 7.5, 0, 55)
+    else
+        togglesFrame.Size = UDim2.new(1, -20, 0, 100)
+        togglesFrame.Position = UDim2.new(0, 10, 0, 65)
+    end
+    togglesFrame.BackgroundTransparency = 1
+    togglesFrame.Parent = mainFrame
+
+    -- Create toggle function
+    local function createToggle(name, text, yPos, initialState)
+        local toggle = Instance.new("TextButton")
+        toggle.Name = name
+        if isMobile() then
+            toggle.Size = UDim2.new(1, 0, 0, MOBILE_TOGGLE_HEIGHT)
+        else
+            toggle.Size = UDim2.new(1, 0, 0, 30)
+        end
+        toggle.Position = UDim2.new(0, 0, 0, yPos)
+        toggle.BackgroundColor3 = themeColors.card
+        toggle.BackgroundTransparency = 0.1
+        toggle.BorderSizePixel = 0
+        toggle.Text = ""
+        toggle.AutoButtonColor = false
+        toggle.Parent = togglesFrame
+        
+        Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 6)
+        
+        local label = Instance.new("TextLabel")
+        label.Name = "Label"
+        label.Parent = toggle
+        label.BackgroundTransparency = 1
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.Size = UDim2.new(1, -60, 1, 0)
+        label.Text = text
+        label.Font = Enum.Font.Gotham
+        if isMobile() then
+            label.TextSize = 11
+        else
+            label.TextSize = 13
+        end
+        label.TextColor3 = themeColors.text
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        
+        local switch = Instance.new("Frame")
+        switch.Name = "Switch"
+        switch.Parent = toggle
+        if isMobile() then
+            switch.Size = UDim2.new(0, 35, 0, 18)
+        else
+            switch.Size = UDim2.new(0, 40, 0, 20)
+        end
+        if isMobile() then
+            switch.Position = UDim2.new(1, -50, 0.5, -9)
+        else
+            switch.Position = UDim2.new(1, -50, 0.5, -10)
+        end
+        switch.BackgroundColor3 = initialState and themeColors.green or themeColors.red
+        switch.BorderSizePixel = 0
+        
+        Instance.new("UICorner", switch).CornerRadius = UDim.new(0, 10)
+        
+        local knob = Instance.new("Frame")
+        knob.Name = "Knob"
+        knob.Parent = switch
+        if isMobile() then
+            knob.Size = UDim2.new(0, 14, 0, 14)
+        else
+            knob.Size = UDim2.new(0, 16, 0, 16)
+        end
+        if initialState then
+            if isMobile() then
+                knob.Position = UDim2.new(1, -16, 0, 2)
+            else
+                knob.Position = UDim2.new(1, -18, 0, 2)
+            end
+        else
+            knob.Position = UDim2.new(0, 2, 0, 2)
+        end
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.BorderSizePixel = 0
+        
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 8)
+        
+        return toggle, switch, knob
+    end
+
+    -- Create toggles
+    local toggleY1 = 0
+    local toggleY2 = isMobile() and 35 or 35
+
+    local LagToggle, LagSwitch, LagKnob = createToggle("LagToggle", "Server Lag [T]", toggleY1, Settings.LagEnabled)
+    local SpeedToggle, SpeedSwitch, SpeedKnob = createToggle("SpeedToggle", "Velocity Speed [F]", toggleY2, Settings.SpeedEnabled)
+
+    -- Toggle UI update function
+    local function updateToggleUI(toggleFrame, knob, isEnabled)
+        TweenService:Create(toggleFrame, TweenInfo.new(0.2), {
+            BackgroundColor3 = isEnabled and themeColors.green or themeColors.red
+        }):Play()
+        
+        local endPosition
+        if isEnabled then
+            if isMobile() then
+                endPosition = UDim2.new(1, -16, 0, 2)
+            else
+                endPosition = UDim2.new(1, -18, 0, 2)
+            end
+        else
+            endPosition = UDim2.new(0, 2, 0, 2)
+        end
+        
+        TweenService:Create(knob, TweenInfo.new(0.2), {
+            Position = endPosition
+        }):Play()
+    end
+
+    -- Connect toggle buttons
+    LagToggle.MouseButton1Click:Connect(function()
+        Settings.LagEnabled = not Settings.LagEnabled
+        updateToggleUI(LagSwitch, LagKnob, Settings.LagEnabled)
+        if ToggleLagVisuals then ToggleLagVisuals() end
+    end)
+
+    SpeedToggle.MouseButton1Click:Connect(function()
+        Settings.SpeedEnabled = not Settings.SpeedEnabled
+        updateToggleUI(SpeedSwitch, SpeedKnob, Settings.SpeedEnabled)
+        if ToggleSpeedVisuals then ToggleSpeedVisuals() end
+    end)
+
+    -- SLIDERS SECTION
+    local slidersFrame = Instance.new("Frame")
+    slidersFrame.Name = "SlidersFrame"
+    if isMobile() then
+        slidersFrame.Size = UDim2.new(1, -15, 0, 100)
+        slidersFrame.Position = UDim2.new(0, 7.5, 0, 145)
+    else
+        slidersFrame.Size = UDim2.new(1, -20, 0, 120)
+        slidersFrame.Position = UDim2.new(0, 10, 0, 150)
+    end
+    slidersFrame.BackgroundColor3 = themeColors.card
+    slidersFrame.BackgroundTransparency = 0.1
+    slidersFrame.BorderSizePixel = 0
+    slidersFrame.Parent = mainFrame
+
+    Instance.new("UICorner", slidersFrame).CornerRadius = UDim.new(0, 8)
+    Instance.new("UIStroke", slidersFrame).Color = Color3.fromRGB(40, 40, 60)
+    slidersFrame.UIStroke.Thickness = 1
+
+    local slidersList = Instance.new("Frame")
+    slidersList.Name = "SlidersList"
+    slidersList.Parent = slidersFrame
+    slidersList.BackgroundTransparency = 1
+    if isMobile() then
+        slidersList.Size = UDim2.new(1, -5, 1, -5)
+        slidersList.Position = UDim2.new(0, 2.5, 0, 2.5)
+    else
+        slidersList.Size = UDim2.new(1, -10, 1, -10)
+        slidersList.Position = UDim2.new(0, 5, 0, 5)
+    end
+    slidersList.BorderSizePixel = 0
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Parent = slidersList
+    listLayout.Padding = UDim.new(0, -5)
+    
+    -- Function to create adjustable slider
+    local function createSlider(name, min, max, defaultValue, callback, isInteger)
+        local sliderContainer = Instance.new("Frame")
+        if isMobile() then
+            sliderContainer.Size = UDim2.new(1, 0, 0, 50)
+        else
+            sliderContainer.Size = UDim2.new(1, 0, 0, 60)
+        end
+        sliderContainer.BackgroundTransparency = 1
+        sliderContainer.Parent = slidersList
+        
+        local sliderName = Instance.new("TextLabel")
+        sliderName.Name = "SliderName"
+        sliderName.Parent = sliderContainer
+        sliderName.BackgroundTransparency = 1
+        sliderName.Position = UDim2.new(0, 0, 0, 0)
+        sliderName.Size = UDim2.new(1, 0, 0, 20)
+        sliderName.Font = Enum.Font.GothamBold
+        if isMobile() then
+            sliderName.TextSize = 11
+        else
+            sliderName.TextSize = 13
+        end
+        sliderName.TextColor3 = themeColors.text
+        sliderName.TextXAlignment = Enum.TextXAlignment.Left
+        sliderName.Text = name
+        
+        local valueLabel = Instance.new("TextLabel")
+        valueLabel.Name = "ValueLabel"
+        valueLabel.Parent = sliderContainer
+        valueLabel.BackgroundTransparency = 1
+        valueLabel.Position = UDim2.new(1, -55, 0, 0)
+        valueLabel.Size = UDim2.new(0, 45, 0, 20)
+        valueLabel.Font = Enum.Font.GothamBlack
+        if isMobile() then
+            valueLabel.TextSize = 12
+        else
+            valueLabel.TextSize = 14
+        end
+        valueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+        valueLabel.Text = tostring(defaultValue)
+        
+        local sliderBg = Instance.new("Frame")
+        sliderBg.Name = "SliderBg"
+        if isMobile() then
+            sliderBg.Size = UDim2.new(1, 0, 0, 8)
+            sliderBg.Position = UDim2.new(0, 0, 0, 30)
+        else
+            sliderBg.Size = UDim2.new(1, 0, 0, 10)
+            sliderBg.Position = UDim2.new(0, 0, 0, 35)
+        end
+        sliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+        sliderBg.BorderSizePixel = 0
+        sliderBg.Parent = sliderContainer
+        
+        Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(1, 0)
+        
+        local sliderBgStroke = Instance.new("UIStroke", sliderBg)
+        sliderBgStroke.Color = Color3.fromRGB(30, 30, 50)
+        sliderBgStroke.Thickness = 1
+        sliderBgStroke.Transparency = 0.5
+        
+        local sliderFill = Instance.new("Frame")
+        sliderFill.Name = "SliderFill"
+        sliderFill.Size = UDim2.new((defaultValue - min) / (max - min), 0, 1, 0)
+        sliderFill.BackgroundColor3 = themeColors.accent
+        sliderFill.BorderSizePixel = 0
+        sliderFill.Parent = sliderBg
+        
+        Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
+        
+        local sliderKnob = Instance.new("Frame")
+        sliderKnob.Name = "SliderKnob"
+        if isMobile() then
+            sliderKnob.Size = UDim2.new(0, 18, 0, 18)
+        else
+            sliderKnob.Size = UDim2.new(0, 20, 0, 20)
+        end
+        sliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+        sliderKnob.Position = UDim2.new(1, 0, 0.5, 0)
+        sliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        sliderKnob.BorderSizePixel = 0
+        sliderKnob.Parent = sliderFill
+        
+        Instance.new("UICorner", sliderKnob).CornerRadius = UDim.new(1, 0)
+        
+        local knobGlow = Instance.new("UIStroke", sliderKnob)
+        knobGlow.Color = Color3.fromRGB(255, 255, 255)
+        knobGlow.Thickness = 2.5
+        knobGlow.Transparency = 0.2
+        
+        local sliderButton = Instance.new("TextButton")
+        sliderButton.Name = "SliderButton"
+        sliderButton.Size = UDim2.new(1, 0, 1, 0)
+        sliderButton.BackgroundTransparency = 1
+        sliderButton.Text = ""
+        sliderButton.Parent = sliderBg
+        
+        local isDragging = false
+        
+        local function updateSlider(input)
+            local pos = input.Position.X
+            local sliderAbsPos = sliderBg.AbsolutePosition.X
+            local sliderAbsSize = sliderBg.AbsoluteSize.X
+            local percent = math.clamp((pos - sliderAbsPos) / sliderAbsSize, 0, 1)
+            
+            TweenService:Create(sliderFill, TweenInfo.new(0.05), {
+                Size = UDim2.new(percent, 0, 1, 0)
+            }):Play()
+            
+            local value
+            if isInteger then
+                value = math.floor(min + (max - min) * percent)
+            else
+                value = math.floor((min + (max - min) * percent) * 10) / 10
+            end
+            
+            valueLabel.Text = tostring(value)
+            
+            TweenService:Create(valueLabel, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                TextColor3 = Color3.fromRGB(255, 255, 255),
+                TextSize = isMobile() and 14 or 16
+            }):Play()
+            
+            callback(value)
+            
+            task.delay(0.2, function()
+                TweenService:Create(valueLabel, TweenInfo.new(0.2), {
+                    TextColor3 = Color3.fromRGB(255, 255, 255),
+                    TextSize = isMobile() and 12 or 14
+                }):Play()
+            end)
+        end
+        
+        sliderButton.MouseButton1Down:Connect(function(input)
+            isDragging = true
+            updateSlider(input)
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                isDragging = false
+                SaveConfig()
+            end
+        end)
+        
+        UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement and isDragging then
+                updateSlider(input)
+            end
+        end)
+        
+        return valueLabel
+    end
+
+    -- Create adjustable sliders
+    local packetRateValue = createSlider("Packet Rate:", 1, 20, Settings.PacketRate, function(value)
+        Settings.PacketRate = value
+    end, true)
+    
+    local speedValueValue = createSlider("Speed Value:", 35, 55, Settings.SpeedValue, function(value)
+        Settings.SpeedValue = value
+    end, true)
+
+    -- Animation for main UI entrance
+    task.spawn(function()
+        task.wait(0.5)
+        
+        if isMobile() then
+            TweenService:Create(mainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Position = UDim2.new(1, -225, 0, 45),
+                BackgroundTransparency = 0.05
+            }):Play()
+        else
+            TweenService:Create(mainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                Position = UDim2.new(1, -300, 0, 60),
+                BackgroundTransparency = 0.05
+            }):Play()
+        end
+    end)
+
+    -- Dragging with touch support
+    local dragging = false
+    local dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            
+            TweenService:Create(header.UIStroke, TweenInfo.new(0.2), {
+                Thickness = 2
+            }):Play()
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    TweenService:Create(header.UIStroke, TweenInfo.new(0.2), {
+                        Thickness = 1
+                    }):Play()
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            update(input)
+        end
+    end)
+
+    -- Update ToggleLagVisuals function to update UI
+    local originalToggleLagVisuals = ToggleLagVisuals
+    ToggleLagVisuals = function()
+        if originalToggleLagVisuals then originalToggleLagVisuals() end
+        updateToggleUI(LagSwitch, LagKnob, Settings.LagEnabled or Settings.IsAutoLagging)
+    end
+
+    -- Update ToggleSpeedVisuals function to update UI
+    local originalToggleSpeedVisuals = ToggleSpeedVisuals
+    ToggleSpeedVisuals = function()
+        if originalToggleSpeedVisuals then originalToggleSpeedVisuals() end
+        updateToggleUI(SpeedSwitch, SpeedKnob, Settings.SpeedEnabled)
+    end
+
+    -- Update settings values periodically
+    task.spawn(function()
+        while screenGui.Parent do
+            packetRateValue.Text = tostring(Settings.PacketRate)
+            speedValueValue.Text = tostring(Settings.SpeedValue)
+            
+            packetRateValue.TextColor3 = Color3.fromRGB(255, 255, 255)
+            speedValueValue.TextColor3 = Color3.fromRGB(255, 255, 255)
+            
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- System functions
+local function handleAntiDeath()
+    -- Anti-death is now always active
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then return end
+    hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+    if hum.Health <= 0 then
+        hum.Health = 100
+        if hum:GetState() == Enum.HumanoidStateType.Dead then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if root and root.Position.Y < -50 then
+            root.CFrame = CFrame.new(0, 25, 0)
+            root.Velocity = Vector3.new(0, 0, 0)
+        end
+    end
+    if hum.Health < 50 then hum.Health = math.min(hum.Health + 10, 100) end
+    for _, track in pairs(hum:GetPlayingAnimationTracks()) do
+        local name = track.Name:lower()
+        if name:find("death") or name:find("die") or name:find("dead") or name:find("fall") then
+            track:Stop()
+        end
+    end
+    if hum:GetState() == Enum.HumanoidStateType.FallingDown or hum:GetState() == Enum.HumanoidStateType.Dead then
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+end
+
+local function findTarget()
+    local foundRemotes = {}
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("RemoteEvent") then
+            local fullName = v:GetFullName()
+            local remoteName = v.Name
+            local isBlacklisted = false
+            for _, blacklisted in ipairs(blacklistedNames) do
+                if string.find(fullName, blacklisted, 1, true) or string.find(remoteName, blacklisted, 1, true) then
+                    isBlacklisted = true
+                    break
+                end
+            end
+            if not isBlacklisted then
+                for _, priority in ipairs(priorityTargets) do
+                    if string.find(remoteName, priority, 1, true) then
+                        return v
+                    end
+                end
+                table.insert(foundRemotes, v)
+            end
+        end
+    end
+    return #foundRemotes > 0 and foundRemotes[1] or nil
+end
+
+local TargetRemote = findTarget()
+
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, playerWhoTriggered)
+    if playerWhoTriggered ~= LocalPlayer then return end
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack and char then
+        local tool = backpack:FindFirstChild("Flash Teleport")
+        if tool and tool:IsA("Tool") then tool.Parent = char end
+    end
+end)
+
+ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, playerWhoTriggered)
+    if playerWhoTriggered ~= LocalPlayer then return end
+    local char = LocalPlayer.Character
+    if char then
+        local tool = char:FindFirstChild("Flash Teleport")
+        if tool and tool:IsA("Tool") then tool:Activate() end
+    end
+end)
+
+-- Clean up any existing UI
+for _, g in pairs(CoreGui:GetChildren()) do
+    if g.Name == "LimitedHubGlass" or g.Name == "PremiumLoadScreen" or g.Name == "CleanAdminGUI" then 
+        g:Destroy() 
+    end
+end
+for _, g in pairs(PlayerGui:GetChildren()) do
+    if g.Name == "LimitedHubGlass" or g.Name == "PremiumLoadScreen" or g.Name == "CleanAdminGUI" then 
+        g:Destroy() 
+    end
+end
+
+-- LOADING SCREEN
+local loadScreenGui = Instance.new("ScreenGui")
+loadScreenGui.Name = "PremiumLoadScreen"
+loadScreenGui.ResetOnSpawn = false
+loadScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+loadScreenGui.DisplayOrder = 1000
+loadScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Main loading container at top center
+local mainContainer = Instance.new("Frame")
+mainContainer.Name = "MainContainer"
+if isMobile() then
+    mainContainer.Size = UDim2.new(0, 200, 0, 100)
+    mainContainer.Position = UDim2.new(0.5, -100, 0, 10)
+else
+    mainContainer.Size = UDim2.new(0, 250, 0, 120)
+    mainContainer.Position = UDim2.new(0.5, -125, 0, 15)
+end
+mainContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainContainer.BackgroundTransparency = 0.1
+mainContainer.BorderSizePixel = 0
+mainContainer.Parent = loadScreenGui
+
+Instance.new("UICorner", mainContainer).CornerRadius = UDim.new(0, 12)
+local containerStroke = Instance.new("UIStroke", mainContainer)
+containerStroke.Color = Color3.fromRGB(80, 120, 200)
+containerStroke.Thickness = 1.8
+containerStroke.Transparency = 0.25
+
+-- Title
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "TitleLabel"
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.Position = UDim2.new(0, 0, 0, 5)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "LOADING..."
+titleLabel.Font = Enum.Font.GothamBlack
+if isMobile() then
+    titleLabel.TextSize = 18
+else
+    titleLabel.TextSize = 22
+end
+titleLabel.TextColor3 = Color3.fromRGB(240, 240, 255)
+titleLabel.TextStrokeTransparency = 0.3
+titleLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+titleLabel.Parent = mainContainer
+
+-- Status text
+local statusText = Instance.new("TextLabel")
+statusText.Name = "StatusText"
+statusText.Size = UDim2.new(1, -20, 0, 25)
+statusText.Position = UDim2.new(0, 10, 0, 35)
+statusText.BackgroundTransparency = 1
+statusText.Text = "INITIALIZING"
+statusText.Font = Enum.Font.GothamBold
+if isMobile() then
+    statusText.TextSize = 14
+else
+    statusText.TextSize = 16
+end
+statusText.TextColor3 = Color3.fromRGB(200, 220, 255)
+statusText.Parent = mainContainer
+
+-- Sub status text
+local subStatusText = Instance.new("TextLabel")
+subStatusText.Name = "SubStatusText"
+subStatusText.Size = UDim2.new(1, -20, 0, 20)
+subStatusText.Position = UDim2.new(0, 10, 0, 55)
+subStatusText.BackgroundTransparency = 1
+subStatusText.Text = "STARTING UP..."
+subStatusText.Font = Enum.Font.Gotham
+if isMobile() then
+    subStatusText.TextSize = 10
+else
+    subStatusText.TextSize = 12
+end
+subStatusText.TextColor3 = Color3.fromRGB(150, 170, 200)
+subStatusText.Parent = mainContainer
+
+-- Progress bar container
+local progressContainer = Instance.new("Frame")
+progressContainer.Name = "ProgressContainer"
+if isMobile() then
+    progressContainer.Size = UDim2.new(1, -40, 0, 6)
+    progressContainer.Position = UDim2.new(0, 20, 0, 80)
+else
+    progressContainer.Size = UDim2.new(1, -40, 0, 6)
+    progressContainer.Position = UDim2.new(0, 20, 0, 85)
+end
+progressContainer.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+progressContainer.BorderSizePixel = 0
+progressContainer.Parent = mainContainer
+
+Instance.new("UICorner", progressContainer).CornerRadius = UDim.new(1, 0)
+
+local progressFill = Instance.new("Frame")
+progressFill.Name = "ProgressFill"
+progressFill.Size = UDim2.new(0, 0, 1, 0)
+progressFill.Position = UDim2.new(0, 0, 0, 0)
+progressFill.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+progressFill.BorderSizePixel = 0
+progressFill.Parent = progressContainer
+
+Instance.new("UICorner", progressFill).CornerRadius = UDim.new(1, 0)
+
+-- Percentage text
+local percentText = Instance.new("TextLabel")
+percentText.Name = "PercentText"
+percentText.Size = UDim2.new(0, 40, 0, 20)
+if isMobile() then
+    percentText.Position = UDim2.new(1, -45, 0.5, -10)
+else
+    percentText.Position = UDim2.new(1, -45, 0.5, -10)
+end
+percentText.BackgroundTransparency = 1
+percentText.Text = "0%"
+percentText.Font = Enum.Font.GothamBold
+if isMobile() then
+    percentText.TextSize = 12
+else
+    percentText.TextSize = 14
+end
+percentText.TextColor3 = Color3.fromRGB(200, 220, 255)
+percentText.TextXAlignment = Enum.TextXAlignment.Right
+percentText.Parent = progressContainer
+
+-- Function to update progress
+local function updateProgress(percent, status, subStatus)
+    TweenService:Create(progressFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(percent / 100, 0, 1, 0)
+    }):Play()
+    
+    percentText.Text = string.format("%d%%", percent)
+    
+    if status then
+        statusText.Text = status
+    end
+    
+    if subStatus then
+        subStatusText.Text = subStatus
+    end
+end
+
+-- Start 5-second loading sequence
+task.spawn(function()
+    -- Initial animation (appear from top)
+    if isMobile() then
+        mainContainer.Position = UDim2.new(0.5, -100, -0.2, 0)
+    else
+        mainContainer.Position = UDim2.new(0.5, -125, -0.2, 0)
+    end
+    mainContainer.BackgroundTransparency = 1
+    
+    if isMobile() then
+        TweenService:Create(mainContainer, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -100, 0, 10),
+            BackgroundTransparency = 0.1
+        }):Play()
+    else
+        TweenService:Create(mainContainer, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, -125, 0, 15),
+            BackgroundTransparency = 0.1
+        }):Play()
+    end
+    
+    task.wait(0.5)
+    
+    local startTime = tick()
+    
+    -- Phase 1: Initial setup (1 second)
+    updateProgress(15, "INITIALIZING", "Starting Artful hub...")
+    task.wait(0.3)
+    
+    updateProgress(30, "CHECKING CHARACTER", "Loading player data...")
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+    task.wait(0.7)
+    
+    -- Phase 2: Whitelist check
+    updateProgress(45, "CHECKING WHITELIST", "Verifying access...")
+    
+    local whitelistSuccess = checkWhitelist()
+    
+    if not whitelistSuccess then 
+        updateProgress(60, "WHITELIST FAILED", "Please contact owner")
+        task.wait(1)
+        
+        TweenService:Create(mainContainer, TweenInfo.new(0.5), {
+            BackgroundTransparency = 1
+        }):Play()
+        task.wait(0.5)
+        loadScreenGui:Destroy()
+        return 
+    end
+    
+    -- Continue if whitelist passed
+    updateProgress(60, "LOADING CONFIG", "Reading settings...")
+    task.wait(0.5)
+    
+    updateProgress(75, "SCANNING REMOTES", "Finding target...")
+    task.wait(0.5)
+    
+    updateProgress(85, "SETTING UP SYSTEMS", "Initializing modules...")
+    task.wait(0.5)
+    
+    updateProgress(100, "READY", "Artful hub loaded")
+    
+    -- Ensure exactly 5 seconds total
+    local elapsed = tick() - startTime
+    if elapsed < 5 then
+        task.wait(5 - elapsed)
+    end
+    
+    -- Fade out animation (move up and fade)
+    if isMobile() then
+        TweenService:Create(mainContainer, TweenInfo.new(0.5), {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0.5, -100, -0.2, 0)
+        }):Play()
+    else
+        TweenService:Create(mainContainer, TweenInfo.new(0.5), {
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0.5, -125, -0.2, 0)
+        }):Play()
+    end
+    
+    task.wait(0.5)
+    
+    -- Destroy loading screen
+    loadScreenGui:Destroy()
+    
+    -- Now load the main UI
+    loadMainUI()
+end)
+
+-- Key bindings
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    
+    -- T key toggles Server Lag
+    if input.KeyCode == Enum.KeyCode.T then
+        Settings.LagEnabled = not Settings.LagEnabled
+        if ToggleLagVisuals then ToggleLagVisuals() end
+    end
+    
+    -- F key toggles Speed Hack
+    if input.KeyCode == Enum.KeyCode.F then
+        Settings.SpeedEnabled = not Settings.SpeedEnabled
+        if ToggleSpeedVisuals then ToggleSpeedVisuals() end
+    end
+end)
+
+-- OPTIMIZED MAIN SYSTEM LOOP WITH 0.02s PACKET DELAY
+-- Add this variable at the top of your main loop section
+local lastLagPacketTime = 0
+
+RunService.Heartbeat:Connect(function()
+    handleAntiDeath()  -- Anti-death is always active now
+   
+    if Settings.SpeedEnabled then
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if hum and root and hum.MoveDirection.Magnitude > 0 then
+            root.Velocity = Vector3.new(
+                hum.MoveDirection.X * Settings.SpeedValue,
+                root.Velocity.Y,
+                hum.MoveDirection.Z * Settings.SpeedValue
+            )
+        end
+    end
+   
+    local shouldLag = Settings.LagEnabled or Settings.IsAutoLagging
+    if shouldLag and TargetRemote then
+        local currentTime = tick()
+        
+        -- Check if 0.02 seconds have passed since last packet
+        if currentTime - lastLagPacketTime >= 0.02 then
+            lastLagPacketTime = currentTime
+            
+            -- Send packets with 0.02s delay between each
+            local payload = string.rep("X", 2000)
+            
+            -- Run in a separate thread to prevent blocking
+            task.spawn(function()
+                for i = 1, Settings.PacketRate do
+                    pcall(function() 
+                        TargetRemote:FireServer("d80e2217-36b8-4bdc-9a46-2281c6f70b28", payload) 
+                    end)
+                    
+                    -- Wait 0.02 seconds before sending next packet
+                    if i < Settings.PacketRate then
+                        task.wait(0.02)
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(handleAntiDeath)
